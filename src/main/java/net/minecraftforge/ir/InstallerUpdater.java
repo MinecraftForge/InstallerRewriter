@@ -51,14 +51,11 @@ import static net.minecraftforge.ir.JarContents.MANIFEST;
 
 class InstallerUpdater {
     private static final Logger LOGGER = LogManager.getLogger();
-    private static final String PATH10 = "net/minecraftforge/installer/{VERSION}/installer-{VERSION}.jar";
-    private static final String PATH = "net/minecraftforge/installer/{VERSION}/installer-{VERSION}-shrunk.jar";
     private static final String INSTALL_PROFILE = "install_profile.json";
     @SuppressWarnings("unchecked")
     private Set<String>[] blacklist = new Set[]{ new TreeSet<String>(), new TreeSet<String>() };
     private JarContents[] latestJars = new JarContents[2];
 
-    @SuppressWarnings("unchecked")
     boolean loadInstallerData(Path cache) {
         LOGGER.info("Download all installer seeds");
         List<String> versions = getVersions(cache);
@@ -87,7 +84,7 @@ class InstallerUpdater {
 
         for (int x = 0; x < latest.length; x++) {
             LOGGER.info("Latest " + (x + 1) + ".x: " + latest[x]);
-            Path path = cache.resolve(PATH.replace("{VERSION}", latest[x]));
+            Path path = cache.resolve(getInstallerBase(latest[x]));
             if (!Files.exists(path)) {
                 LOGGER.error("Missing latest installer version: " + latest[x]);
                 return false;
@@ -129,12 +126,24 @@ class InstallerUpdater {
         }
     }
 
+    private static String getInstallerBase(String version) {
+        String path = "net/minecraftforge/installer/" + version + "/installer-" + version;
+        if ("1.0".equals(version))
+            path += ".jar";
+        else if (version.startsWith("2.2"))
+            path += "-fatjar.jar";
+        else
+            path += "-shrunk.jar";
+        return path;
+    }
+
     private boolean processSeed(Path cache, String version) {
         // 1.5-snapshot is a snapshot and honestly dont think it was used either, so maybe TODO?
         if (version.endsWith("-SNAPSHOT"))
             return true;
 
-        String path = ("1.0".equals(version) ? PATH10 : PATH).replace("{VERSION}", version);
+        String path = getInstallerBase(version);
+
         Path target = cache.resolve(path);
         try {
             Utils.downloadFile(new URL(InstallerRewriter.FORGE_MAVEN + path), cache.resolve(path));

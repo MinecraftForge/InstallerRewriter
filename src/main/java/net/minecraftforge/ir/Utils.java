@@ -277,7 +277,7 @@ public class Utils {
         try (Response response = HTTP_CLIENT.newCall(request).execute()) {
             ResponseBody body = response.body();
             if (!response.isSuccessful()) {
-                throw new RuntimeException("Got: " + response.code());
+                throw new RuntimeException("Got: " + response.code() + " for " + url);
             }
             if (body == null) {
                 throw new RuntimeException("Expected response body.");
