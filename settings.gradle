@@ -1,2 +1,36 @@
-rootProject.name = 'InstallerRewriter'
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.10.0'
+}
 
+rootProject.name = 'installer-rewriter'
+
+dependencyResolutionManagement {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net/' }
+        mavenCentral()
+    }
+
+    versionCatalogs.register('libs') {
+        plugin 'licenser', 'net.minecraftforge.licenser' version '1.2.0'
+        plugin 'gradleutils', 'net.minecraftforge.gradleutils' version '2.6.0'
+        plugin 'shadow', 'com.gradleup.shadow' version '9.0.0-beta13'
+
+        library 'jopt', 'net.sf.jopt-simple', 'jopt-simple' version '5.0.4'
+
+        library 'log4j', 'org.apache.logging.log4j', 'log4j-core' version '2.14.1'
+
+        version 'maven', '3.8.1'
+        library 'maven-repometa', 'org.apache.maven', 'maven-repository-metadata' versionRef 'maven'
+        library 'maven-artifact', 'org.apache.maven', 'maven-artifact' versionRef 'maven'
+        bundle 'maven', ['maven-repometa', 'maven-artifact']
+
+        library 'commons-lang', 'org.apache.commons', 'commons-lang3' version '3.12.0'
+        library 'guava', 'com.google.guava', 'guava' version '31.0.1-jre'
+        library 'gson', 'com.google.code.gson', 'gson' version '2.8.8'
+        library 'quack', 'net.covers1624', 'Quack' version '0.3.7.29'
+
+        library 'okhttp', 'com.squareup.okhttp3:okhttp:4.9.1'
+
+        library 'nulls', 'org.jetbrains', 'annotations' version '26.0.2'
+    }
+}
