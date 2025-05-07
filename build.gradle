@@ -1,71 +1,59 @@
-buildscript {
-    repositories {
-        mavenLocal()
-        jcenter()
-        maven { url "https://maven.minecraftforge.net/" }
-    }
-    dependencies {
-        classpath 'net.minecraftforge.gradleutils:GradleUtils:1.0.+'
-    }
-}
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import com.github.jengelman.gradle.plugins.shadow.transformers.Log4j2PluginsCacheFileTransformer
 
 plugins {
     id 'java'
-    id 'org.cadixdev.licenser' version '0.6.1'
-    id 'com.github.johnrengelman.shadow' version '7.0.0'
+    id 'idea'
+    id 'eclipse'
+    alias libs.plugins.licenser
+    alias libs.plugins.gradleutils
+    alias libs.plugins.shadow
 }
 
-apply plugin: 'net.minecraftforge.gradleutils'
+group = 'net.minecraftforge'
+version = gitversion.tagOffset
 
-group 'net.minecraftforge'
-version = gradleutils.tagOffsetVersion
-
-java.toolchain.languageVersion = JavaLanguageVersion.of(8)
+java.toolchain.languageVersion = JavaLanguageVersion.of 8
 
 license {
-    header project.file('LICENSE-header.txt')
-    include 'net/minecraftforge/ir/**/*.java'
+    header = rootProject.file('LICENSE-header.txt')
     newLine false
-}
-
-repositories {
-    mavenLocal()
-    mavenCentral()
-    maven { url 'https://maven.minecraftforge.net/' }
-    maven { url 'https://maven.covers1624.net/' }
-}
-
-configurations {
-    shadow
-    api.extendsFrom shadow
+    include '**/*.java'
 }
 
 dependencies {
-    shadow 'net.sf.jopt-simple:jopt-simple:5.0.4'
+    implementation libs.jopt
 
-    shadow 'org.apache.logging.log4j:log4j-core:2.14.1'
+    implementation libs.log4j
 
-    shadow 'org.apache.maven:maven-repository-metadata:3.8.1'
-    shadow 'org.apache.maven:maven-artifact:3.8.1'
-    shadow 'org.apache.commons:commons-lang3:3.12.0'
-    shadow 'com.google.guava:guava:31.0.1-jre'
-    shadow 'com.google.code.gson:gson:2.8.8'
-    shadow 'net.covers1624:Quack:0.3.7.29'
+    implementation libs.bundles.maven
+    implementation libs.commons.lang
+    implementation libs.guava
+    implementation libs.gson
+    implementation libs.quack
 
-    shadow 'com.squareup.okhttp3:okhttp:4.9.1'
+    implementation libs.okhttp
+
+    compileOnly libs.nulls
 }
 
-jar.enabled = false
-shadowJar {
-    build.dependsOn it
-    configurations = [project.configurations.shadow]
-    classifier ''
+tasks.named('jar', Jar) {
+    enabled = false
+}
+
+tasks.named('shadowJar', ShadowJar) {
     manifest {
         attributes 'Main-Class': 'net.minecraftforge.ir.InstallerRewriter'
         attributes 'Multi-Release': 'true'
     }
 
-    exclude 'module-info.class'
-    transform(com.github.jengelman.gradle.plugins.shadow.transformers.Log4j2PluginsCacheFileTransformer)
-    from file("LICENSE.txt")
+    archiveClassifier = ''
+    transform(Log4j2PluginsCacheFileTransformer) { }
+    from rootProject.file('LICENSE.txt')
 }
+
+tasks.named('assemble') {
+    dependsOn tasks.named('shadowJar', ShadowJar)
+}
+
+idea.module { downloadSources = downloadJavadoc = true }
