@@ -26,17 +26,18 @@ import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-/**
- * Created by covers1624 on 30/4/21.
- */
+import net.minecraftforge.ir.json.InstallProfile;
+import net.minecraftforge.ir.util.JarContents;
+import net.minecraftforge.ir.util.Utils;
+
 public enum InstallerFormat {
     V2,
     V1,
     ;
     private static final Logger LOGGER = LogManager.getLogger();
 
-    public static InstallerFormat detectInstallerFormat(JarContents jar) {
-        try (InputStream is = jar.getInput("install_profile.json")) {
+    public static InstallerFormat detect(JarContents jar) {
+        try (InputStream is = jar.getInput(InstallProfile.INSTALL_PROFILE)) {
             if (is == null)
                 return null;
 

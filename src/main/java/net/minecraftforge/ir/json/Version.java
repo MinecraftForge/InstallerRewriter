@@ -20,14 +20,35 @@ package net.minecraftforge.ir.json;
 
 import com.google.gson.JsonObject;
 import net.covers1624.quack.maven.MavenNotation;
+import net.minecraftforge.ir.util.Utils;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.maven.artifact.versioning.ComparableVersion;
+
 //Mostly copied from the Installer, except easily mutable.
 public class Version {
+    public static Version read(Path path) throws IOException {
+        try (InputStream stream = Files.newInputStream(path)) {
+            return read(stream);
+        }
+    }
+
+    public static Version read(InputStream stream) throws IOException {
+        try (Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+            return Utils.GSON.fromJson(reader, Version.class);
+        }
+    }
 
     public List<String> _comment_;
 
@@ -41,6 +62,7 @@ public class Version {
     public String minecraftArguments;
     public Map<String, Download> downloads;
     public List<Library> libraries;
+    public JavaVersion javaVersion;
 
     public Map<String, Download> getDownloads() {
         if (downloads == null) {
@@ -54,6 +76,24 @@ public class Version {
             libraries = new ArrayList<>();
         }
         return libraries;
+    }
+
+    private static final ComparableVersion MC_1_17 = new ComparableVersion("1.17");
+    private static final ComparableVersion MC_1_18 = new ComparableVersion("1.18");
+    private static final ComparableVersion MC_1_20_5 = new ComparableVersion("1.20.5");
+    public int getJavaVersion(String version) {
+        var ret = javaVersion == null ? 0 : javaVersion.majorVersion;
+        if (ret != 0) return ret;
+        var ver = new ComparableVersion(version);
+        if (ver.compareTo(MC_1_20_5) >= 0) return 21;
+        if (ver.compareTo(MC_1_18) >= 0) return 17;
+        if (ver.compareTo(MC_1_17) >= 0) return 16;
+        return 8;
+    }
+
+    public static class JavaVersion {
+        public String component;
+        public int majorVersion;
     }
 
     public static class Download {

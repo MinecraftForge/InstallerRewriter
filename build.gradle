@@ -13,7 +13,7 @@ plugins {
 group = 'net.minecraftforge'
 version = gitversion.tagOffset
 
-java.toolchain.languageVersion = JavaLanguageVersion.of 8
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
 license {
     header = rootProject.file('LICENSE-header.txt')
@@ -33,11 +33,15 @@ dependencies {
     implementation libs.quack
 
     implementation libs.okhttp
+    implementation libs.hash.utils
+    implementation libs.download.utils
+    implementation libs.java.provisioner
 
     compileOnly libs.nulls
 }
 
 tasks.named('jar', Jar) {
+    archiveClassifier = 'slim'
     enabled = false
 }
 

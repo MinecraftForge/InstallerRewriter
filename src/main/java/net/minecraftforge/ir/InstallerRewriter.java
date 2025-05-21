@@ -30,35 +30,27 @@ import net.covers1624.quack.maven.MavenNotation;
 import net.covers1624.quack.util.JavaPathUtils;
 import net.covers1624.quack.util.MultiHasher;
 import net.covers1624.quack.util.SneakyUtils;
-import okhttp3.Request;
-import okhttp3.Response;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import net.minecraftforge.ir.test.InstallerTester;
+import net.minecraftforge.ir.util.JarContents;
+import net.minecraftforge.ir.util.Log;
+import net.minecraftforge.ir.util.Utils;
 import org.apache.maven.artifact.versioning.ComparableVersion;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
-import java.net.URISyntaxException;
-import java.net.URL;
 import java.nio.file.*;
 import java.nio.file.attribute.FileTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
 import static java.util.Arrays.asList;
-import static net.covers1624.quack.util.SneakyUtils.sneaky;
-import static net.minecraftforge.ir.Utils.runWaitFor;
+import static net.minecraftforge.ir.util.Utils.runWaitFor;
 
-/**
- * Created by covers1624 on 30/4/21.
- */
 public class InstallerRewriter {
 
-    public static final Logger LOGGER = LogManager.getLogger();
-
-    public static final URL VERSION_MANIFEST = sneaky(() -> new URL("https://launchermeta.mojang.com/mc/game/version_manifest.json"));
+    public static final Log LOGGER = new Log();
 
     public static final String FORGE_MAVEN = "https://maven.minecraftforge.net/";
     public static final String OLD_FORGE_MAVEN = "https://files.minecraftforge.net/maven/";
@@ -95,7 +87,7 @@ public class InstallerRewriter {
     public static final Path CACHE_DIR = RUN_DIR.resolve("cache");
 
     private static final Map<InstallerFormat, InstallerProcessor> PROCESSORS = ImmutableMap.of(
-            InstallerFormat.V1, new InstallerV1Processor(),
+            InstallerFormat.V1, new InstallerV1Processor(LOGGER, CACHE_DIR),
             InstallerFormat.V2, new InstallerV2Processor()
     );
 
@@ -106,14 +98,16 @@ public class InstallerRewriter {
             MultiHasher.HashFunc.SHA512
     );
 
-    //Speeeeeeed.
-    private static final Map<String, Boolean> recentHeadRequests = new HashMap<>();
-
     public static void main(String[] args) throws Throwable {
         System.exit(mainI(args));
     }
 
     public static int mainI(String[] args) throws Throwable {
+
+        for (var arg : args) {
+            if ("--test".equals(arg))
+                return InstallerTester.mainI(args);
+        }
         OptionParser parser = new OptionParser();
 
         OptionSpec<Void> helpOpt = parser.acceptsAll(asList("h", "help"), "Prints this help.").forHelp();
@@ -313,7 +307,7 @@ public class InstallerRewriter {
         JarContents contents = JarContents.loadJar(repoInstallerPath.toFile());
 
         //Attempt to detect the installer format.
-        InstallerFormat format = InstallerFormat.detectInstallerFormat(contents);
+        InstallerFormat format = InstallerFormat.detect(contents);
         if (format == null) {
             LOGGER.error("Unable to detect installer format for {}", notation);
             return;
@@ -409,32 +403,6 @@ public class InstallerRewriter {
                     props.keyAlias
             ));
         });
-    }
-
-    public static boolean headRequest(URL url) throws IOException {
-        // OkHttp does not handle the file protocol.
-        if (url.getProtocol().equals("file")) {
-            try {
-                return Files.exists(Paths.get(url.toURI()));
-            } catch (URISyntaxException e) {
-                throw new RuntimeException("What.", e);
-            }
-        }
-
-        Boolean recent = recentHeadRequests.get(url.toString());
-        if (recent != null) {
-            return recent;
-        }
-        Request request = new Request.Builder()
-                .url(url)
-                .head()
-                .header("User-Agent", Utils.USER_AGENT)
-                .build();
-        try (Response response = Utils.HTTP_CLIENT.newCall(request).execute()) {
-            recent = response.isSuccessful();
-            recentHeadRequests.put(url.toString(), recent);
-            return recent;
-        }
     }
 
     public static class SignProps {

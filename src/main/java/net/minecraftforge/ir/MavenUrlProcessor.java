@@ -21,8 +21,8 @@ package net.minecraftforge.ir;
 import static net.minecraftforge.ir.InstallerRewriter.FORGE_MAVEN;
 import static net.minecraftforge.ir.InstallerRewriter.MIRROR_LIST;
 import static net.minecraftforge.ir.InstallerRewriter.OLD_FORGE_MAVEN;
-import static net.minecraftforge.ir.Utils.getAsInt;
-import static net.minecraftforge.ir.Utils.getAsString;
+import static net.minecraftforge.ir.util.Utils.getAsInt;
+import static net.minecraftforge.ir.util.Utils.getAsString;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -35,6 +35,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import net.covers1624.quack.maven.MavenNotation;
+import net.minecraftforge.ir.util.JarContents;
+import net.minecraftforge.ir.util.Utils;
 
 public class MavenUrlProcessor implements InstallerProcessor {
     private static final Logger LOGGER = LogManager.getLogger();

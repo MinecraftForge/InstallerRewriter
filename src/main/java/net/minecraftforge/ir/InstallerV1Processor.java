@@ -24,43 +24,35 @@ import com.google.common.collect.Table;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import net.covers1624.quack.io.IOUtils;
 import net.covers1624.quack.maven.MavenNotation;
 import net.covers1624.quack.util.HashUtils;
 import net.covers1624.quack.util.SneakyUtils;
 import net.minecraftforge.ir.ClasspathEntry.LibraryClasspathEntry;
 import net.minecraftforge.ir.ClasspathEntry.StringClasspathEntry;
 import net.minecraftforge.ir.json.Install;
-import net.minecraftforge.ir.json.Manifest;
-import net.minecraftforge.ir.json.V1InstallProfile;
+import net.minecraftforge.ir.json.InstallProfileV1;
 import net.minecraftforge.ir.json.Version;
-import org.apache.commons.lang3.tuple.Pair;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import net.minecraftforge.ir.util.JarContents;
+import net.minecraftforge.ir.util.Log;
+import net.minecraftforge.ir.util.MinecraftCache;
+import net.minecraftforge.ir.util.Utils;
+import net.minecraftforge.util.download.DownloadUtils;
+
 import org.apache.maven.artifact.versioning.ComparableVersion;
 
 import java.io.*;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.FileSystem;
-import java.nio.file.attribute.FileTime;
 import java.nio.file.*;
 import java.util.*;
 import java.util.jar.Attributes;
 import java.util.stream.Collectors;
 
-import static net.covers1624.quack.util.SneakyUtils.sneak;
 import static net.minecraftforge.ir.InstallerRewriter.*;
-import static net.minecraftforge.ir.Utils.makeParents;
 
-/**
- * Created by covers1624 on 1/5/21.
- */
-@SuppressWarnings ("UnstableApiUsage")
+@SuppressWarnings({"UnstableApiUsage", "unused"})
 public class InstallerV1Processor implements InstallerProcessor {
 
-    private static final Logger LOGGER = LogManager.getLogger();
-
+    @SuppressWarnings("deprecation")
     private static final HashFunction SHA1 = Hashing.sha1();
 
     private static final List<String> comment = Arrays.asList(
@@ -96,6 +88,16 @@ public class InstallerV1Processor implements InstallerProcessor {
     public static final MavenNotation LJF = !LJF2 ?
             MavenNotation.parse("net.minecraftforge.lex:legacyjavafixer:1.0") :
             MavenNotation.parse("net.minecraftforge:legacyjavafixer:2.0.0");
+
+    private final Log LOGGER;
+    private final Path cache;
+    private final MinecraftCache mcCache;
+
+    public InstallerV1Processor(Log log, Path cache) {
+        this.LOGGER = log;
+        this.cache = cache;
+        this.mcCache = new MinecraftCache(LOGGER, cache);
+    }
 
     @Override
     public InstallerFormat process(MavenNotation notation, JarContents content, InstallerFormat format) throws IOException {
@@ -214,12 +216,12 @@ public class InstallerV1Processor implements InstallerProcessor {
         */
     }
 
+    /*
     private void copyTime(Path from, Path to) throws IOException {
         FileTime last = Files.getLastModifiedTime(from);
         Files.setLastModifiedTime(to, last);
     }
 
-    /*
     private static Install generateInstallProfile(ProcessorContext ctx, Path newFilePath) throws IOException {
         Install install = new Install();
         install._comment_ = comment;
@@ -246,8 +248,8 @@ public class InstallerV1Processor implements InstallerProcessor {
     }
     */
 
-    public static Version generateVersionJson(boolean requiresLJF, Install newProfile, V1InstallProfile v1Profile, List<ClasspathEntry> classpathLibraries) throws IOException {
-        V1InstallProfile.VersionInfo v1VersionInfo = v1Profile.versionInfo;
+    private Version generateVersionJson(boolean requiresLJF, Install newProfile, InstallProfileV1 v1Profile, List<ClasspathEntry> classpathLibraries) throws IOException {
+        InstallProfileV1.VersionInfo v1VersionInfo = v1Profile.versionInfo;
         Version version = new Version();
         version._comment_ = comment;
         version.id = newProfile.version;
@@ -269,22 +271,9 @@ public class InstallerV1Processor implements InstallerProcessor {
             }
         });
         if (v1VersionInfo.inheritsFrom == null) {
-            Path versionManifest = CACHE_DIR.resolve("version_manifest.json");
-            Utils.downloadFile(VERSION_MANIFEST, versionManifest, true);
+            var mcVersion = newProfile.minecraft;
+            var mcVersionJson = this.mcCache.getVersion(mcVersion);
 
-            Manifest manifest;
-            try (BufferedReader reader = Files.newBufferedReader(versionManifest)) {
-                manifest = Utils.GSON.fromJson(reader, Manifest.class);
-            }
-
-            String mcVersion = newProfile.minecraft;
-            Path versionJson = CACHE_DIR.resolve(mcVersion + ".json");
-            Utils.downloadFile(new URL(manifest.getUrl(mcVersion)), versionJson, true);
-
-            Version mcVersionJson;
-            try (BufferedReader reader = Files.newBufferedReader(versionJson)) {
-                mcVersionJson = Utils.GSON.fromJson(reader, Version.class);
-            }
             Set<MavenNotation> mcLibraries = mcVersionJson.getLibraries().stream()
                     .map(e -> e.name)
                     .collect(Collectors.toSet());
@@ -332,7 +321,7 @@ public class InstallerV1Processor implements InstallerProcessor {
         }
 
         List<Version.Library> libraries = version.getLibraries();
-        for (V1InstallProfile.Library library : v1VersionInfo.libraries) {
+        for (InstallProfileV1.Library library : v1VersionInfo.libraries) {
             LOGGER.debug("Processing library: {}", library.name);
             Version.Library lib = rewriteLibrary(library, newProfile);
             libraries.add(lib);
@@ -406,7 +395,7 @@ public class InstallerV1Processor implements InstallerProcessor {
         return version;
     }
 
-    public static Version.Library rewriteLibrary(V1InstallProfile.Library oldLibrary, Install newProfile) throws IOException {
+    private Version.Library rewriteLibrary(InstallProfileV1.Library oldLibrary, Install newProfile) throws IOException {
 
         MavenNotation name = oldLibrary.name;
         //This is the universal jar, without classifier.
@@ -421,9 +410,9 @@ public class InstallerV1Processor implements InstallerProcessor {
 
         String repo = determineRepo(oldLibrary);
         LOGGER.debug("Using {} repository for library {}", repo, name);
-        Path libraryPath = name.toPath(CACHE_DIR);
+        Path libraryPath = name.toPath(this.cache);
         URL url = name.toURL(repo);
-        Utils.downloadFile(url, libraryPath);
+        DownloadUtils.downloadFile(libraryPath.toFile(), url.toString());
         libraryDownload.url = url.toString();
 
         HashCode hash = HashUtils.hash(SHA1, libraryPath);
@@ -452,11 +441,11 @@ public class InstallerV1Processor implements InstallerProcessor {
         return library;
     }
 
-    public static boolean requiresLJF(MavenNotation name) {
+    private boolean requiresLJF(MavenNotation name) {
         return LJF_REQUIRED_VERSIONS.contains(name.version);
     }
 
-    public static void applyLJFManifest(java.util.jar.Manifest manifest) {
+    private void applyLJFManifest(java.util.jar.Manifest manifest) {
         if (!LJF2)
             return;
         Attributes mainAttribs = manifest.getMainAttributes();
@@ -464,7 +453,7 @@ public class InstallerV1Processor implements InstallerProcessor {
         mainAttribs.put(new Attributes.Name("Main-Class"), SERVER_MAIN);
     }
 
-    public static void applyLJFVersion(Version version, V1InstallProfile.VersionInfo v1VersionInfo, List<ClasspathEntry> classpathLibraries) {
+    private void applyLJFVersion(Version version, InstallProfileV1.VersionInfo v1VersionInfo, List<ClasspathEntry> classpathLibraries) {
         if (LJF2)
             version.mainClass = CLIENT_MAIN;
 
@@ -478,7 +467,7 @@ public class InstallerV1Processor implements InstallerProcessor {
 
         LOGGER.debug("Adding extra library: {}", LJF);
         // Add LJF to installer profile, this will be processed later by the rest of V1Processor.
-        V1InstallProfile.Library lib = new V1InstallProfile.Library();
+        InstallProfileV1.Library lib = new InstallProfileV1.Library();
         lib.name = LJF;
         v1VersionInfo.libraries.add(lib);
 
@@ -491,23 +480,23 @@ public class InstallerV1Processor implements InstallerProcessor {
     }
 
     // Determine the repository to use for the library, if mojang has it, prefer that.
-    public static String determineRepo(V1InstallProfile.Library library) throws IOException {
+    private String determineRepo(InstallProfileV1.Library library) throws IOException {
         // If we are forcing the use of local files.
         if (USE_LOCAL_CACHE) {
-            LOGGER.debug("Forcing use of local cache for {}", library.name);
+            LOGGER.debug("Forcing use of local cache for %s", library.name);
             // First try to grab files from ~/.m2/repository/
-            if (headRequest(library.name.toURL(MAVEN_LOCAL))) {
+            if (InstallerUpdater.headRequest(library.name.toURL(MAVEN_LOCAL))) {
                 return MAVEN_LOCAL;
             }
             // Otherwise try from our existing cache dir.
-            String cacheDir = CACHE_DIR.toUri().toString();
-            if (headRequest(library.name.toURL(cacheDir))) {
+            String cacheDir = this.cache.toUri().toString();
+            if (InstallerUpdater.headRequest(library.name.toURL(cacheDir))) {
                 return cacheDir;
             }
 
             // If we don't have it, Download it and use the cache dir.
             String maven = findFirstMaven(library, MAVENS);
-            Utils.downloadFile(library.name.toURL(maven), library.name.toPath(CACHE_DIR));
+            DownloadUtils.downloadFile(library.name.toPath(this.cache).toFile(), library.name.toURL(maven).toString());
             return cacheDir;
         }
 
@@ -515,9 +504,9 @@ public class InstallerV1Processor implements InstallerProcessor {
     }
 
     // Try and find a maven repository that has the given library.
-    public static String findFirstMaven(V1InstallProfile.Library library, String[] mavens) throws IOException {
+    private String findFirstMaven(InstallProfileV1.Library library, String[] mavens) throws IOException {
         for (String maven : mavens) {
-            if (headRequest(library.name.toURL(maven))) {
+            if (InstallerUpdater.headRequest(library.name.toURL(maven))) {
                 return maven;
             }
         }

@@ -16,7 +16,7 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
-package net.minecraftforge.ir;
+package net.minecraftforge.ir.util;
 
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
@@ -25,20 +25,19 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.TypeAdapter;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
+import com.google.gson.stream.JsonWriter;
+
 import net.covers1624.quack.gson.MavenNotationAdapter;
 import net.covers1624.quack.maven.MavenNotation;
 import net.covers1624.quack.util.HashUtils;
 import net.covers1624.quack.util.ProcessUtils;
+import net.covers1624.quack.util.SneakyUtils;
+import net.minecraftforge.ir.ClasspathEntry;
 import net.minecraftforge.ir.ClasspathEntry.LibraryClasspathEntry;
 import net.minecraftforge.ir.ClasspathEntry.StringClasspathEntry;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.ResponseBody;
-import okio.BufferedSink;
-import okio.Okio;
-import okio.Source;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.maven.artifact.repository.metadata.Metadata;
@@ -51,33 +50,26 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.URISyntaxException;
-import java.net.URL;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.FileTime;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 import static java.util.Objects.requireNonNull;
-import static net.covers1624.quack.util.SneakyUtils.sneak;
 
-/**
- * Created by covers1624 on 30/4/21.
- */
 @SuppressWarnings ("UnstableApiUsage")
 public class Utils {
 
@@ -86,15 +78,26 @@ public class Utils {
     private static final MetadataXpp3Reader METADATA_XPP3_READER = new MetadataXpp3Reader();
     private static final HashFunction SHA256 = Hashing.sha256();
 
-    public static final String USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36";
-
-    public static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
-            .readTimeout(Duration.ofMinutes(5))
-            .connectTimeout(Duration.ofMinutes(5))
-            .build();
-
     public static final Gson GSON = new GsonBuilder()
             .registerTypeAdapter(MavenNotation.class, new MavenNotationAdapter())
+            .registerTypeAdapter(Artifact.class, new TypeAdapter<Artifact>() {
+                @Override
+                public void write(JsonWriter out, Artifact value) throws IOException {
+                    if (value == null)
+                        out.nullValue();
+                    else
+                        out.value(value.toString());
+                }
+
+                @Override
+                public Artifact read(JsonReader in) throws IOException {
+                    if (in.peek() == JsonToken.NULL) {
+                        in.nextNull();
+                        return null;
+                    }
+                    return Artifact.from(in.nextString());
+                }
+            })
             .setPrettyPrinting()
             .disableHtmlEscaping()
             .create();
@@ -147,11 +150,44 @@ public class Utils {
         return file;
     }
 
-    public static void delete(Path path) throws IOException {
-        try (Stream<Path> stream = Files.walk(path)) {
+    public static void delete(Path path) {
+        if (!Files.exists(path))
+            return;
+        try (Stream<Path> stream = sneak(() -> Files.walk(path))) {
             stream.sorted(Comparator.reverseOrder()).forEach(sneak(Files::delete));
         }
     }
+
+    public static void forceDelete(Path path) {
+        if (!Files.exists(path))
+            return;
+
+        List<Path> list = sneak(() -> Files.walk(path))
+            .sorted(Comparator.reverseOrder())
+            .toList();
+
+        for (var file : list) {
+            int tries = 20;
+            while (Files.exists(file)) {
+                try {
+                    Files.delete(file);
+                } catch (IOException e) {
+                    if (e.getMessage().contains("used by another process")) {
+                        try {
+                            Thread.sleep(100);
+                        } catch (InterruptedException e1) {
+                        }
+
+                        // Try in case windows defender or some other shit is holding onto file references
+                        if (tries-- < 0)
+                            sneak(e);
+                    } else
+                        sneak(e);
+                }
+            }
+        }
+    }
+
 
     public static boolean contentEquals(Path a, Path b) throws IOException {
         if (Files.notExists(a) || Files.notExists(b)) return false;
@@ -220,25 +256,93 @@ public class Utils {
     }
 
     public static int runWaitFor(Consumer<ProcessBuilder> configure, Consumer<String> consumer) throws IOException {
-        ProcessBuilder procBuilder = new ProcessBuilder();
-        configure.accept(procBuilder);
-        procBuilder.redirectErrorStream(true);
-        Process process = procBuilder.start();
+        return runWaitFor(configure, (proc, e) -> consumer.accept(e));
+    }
 
-        CompletableFuture<Void> stdoutFuture = processLines(process.getInputStream(), consumer);
+    public static int runWaitFor(Consumer<ProcessBuilder> configure, BiConsumer<Process, String> consumer) throws IOException {
+        ProcessBuilder builder = new ProcessBuilder();
+        configure.accept(builder);
+
+        Process process = builder
+            .redirectErrorStream(true)
+            .start();
+
+        CompletableFuture<Void> consoleReader = processLines(process.getInputStream(), line -> consumer.accept(process, line));
         ProcessUtils.onExit(process).thenRunAsync(() -> {
-            if (!stdoutFuture.isDone()) stdoutFuture.cancel(true);
+            if (!consoleReader.isDone()) consoleReader.cancel(true);
         });
+
         try {
             process.waitFor();
         } catch (InterruptedException e) {
             LOGGER.warn("Interrupted.", e);
         }
+
         return process.exitValue();
     }
 
-    public static CompletableFuture<Void> processLines(InputStream stream, Consumer<String> consumer) {
-        return CompletableFuture.runAsync(sneak(() -> {
+    public static int runTimeout(int seconds, Consumer<ProcessBuilder> configure, Consumer<String> consumer) throws IOException {
+        return runTimeout(seconds, configure, (proc, e) -> consumer.accept(e));
+    }
+
+    public static int runTimeout(int seconds, Consumer<ProcessBuilder> configure, BiConsumer<Process, String> consumer) throws IOException {
+        ProcessBuilder builder = new ProcessBuilder();
+        configure.accept(builder);
+
+        Process process = builder
+            .redirectErrorStream(true)
+            .start();
+
+        AtomicLong lastOutput = new AtomicLong(System.currentTimeMillis());
+        CompletableFuture<Void> consoleReader = processLines(process.getInputStream(), line -> {
+            lastOutput.set(System.currentTimeMillis());
+            consumer.accept(process, line);
+        });
+        ProcessUtils.onExit(process).thenRunAsync(() -> {
+            if (!consoleReader.isDone()) consoleReader.cancel(true);
+        });
+
+        long interval = TimeUnit.SECONDS.toMillis(seconds);
+        boolean timedOut = false;
+        while (process.isAlive()) {
+            long currTime = System.currentTimeMillis();
+            if (timedOut || currTime - lastOutput.get() > interval) {
+                timedOut = true;
+                killProcess(process);
+            } else {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                }
+            }
+        }
+
+        return timedOut ? -12345 : process.exitValue();
+    }
+
+    public static void killProcess(Process process) {
+        var handle = process.toHandle();
+        var all = new ArrayList<ProcessHandle>();
+        all.add(handle);
+        handle.descendants().forEach(all::add);
+
+        while (!all.isEmpty()) {
+            all.removeIf(p -> !p.isAlive());
+            if (all.isEmpty()) break;
+            all.forEach(ProcessHandle::destroy);
+
+            var onExit = CompletableFuture.allOf(
+                all.stream()
+                    .map(ProcessHandle::onExit)
+                    .toArray(CompletableFuture[]::new)
+            );
+
+            onExit.join();
+        }
+    }
+
+    private static CompletableFuture<Void> processLines(InputStream stream, Consumer<String> consumer) {
+        return CompletableFuture.runAsync(SneakyUtils.sneak(() -> {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -248,56 +352,6 @@ public class Utils {
         }));
     }
 
-    public static void downloadFile(URL url, Path file) throws IOException {
-        downloadFile(url, file, false);
-    }
-
-    private static final Set<String> recentFiles = new HashSet<>();
-    public static void downloadFile(URL url, Path file, boolean forceDownload) throws IOException {
-        // OkHttp does not handle the file protocol.
-        if (url.getProtocol().equals("file")) {
-            try {
-                Files.createDirectories(file.getParent());
-                Files.copy(Paths.get(url.toURI()), file, StandardCopyOption.REPLACE_EXISTING);
-            } catch (URISyntaxException e) {
-                throw new RuntimeException("What.", e);
-            }
-        }
-        Path tmp = file.resolveSibling(file.getFileName() + "__tmp");
-        if (forceDownload && !recentFiles.contains(url.toString())) {
-            Files.deleteIfExists(file);
-        }
-        if (Files.exists(file)) return; //Assume the file is already downloaded.
-        recentFiles.add(url.toString());
-
-        Request request = new Request.Builder()
-                .url(url)
-                .header("User-Agent", USER_AGENT)
-                .build();
-        try (Response response = HTTP_CLIENT.newCall(request).execute()) {
-            ResponseBody body = response.body();
-            if (!response.isSuccessful()) {
-                throw new RuntimeException("Got: " + response.code() + " for " + url);
-            }
-            if (body == null) {
-                throw new RuntimeException("Expected response body.");
-            }
-
-            LOGGER.info("Downloading file " + file.getFileName());
-            try (Source source = body.source()) {
-                try (BufferedSink sink = Okio.buffer(Okio.sink(makeParents(tmp)))) {
-                    sink.writeAll(source);
-                }
-            }
-            Files.move(tmp, file);
-
-            Date lastModified = response.headers().getDate("Last-Modified");
-            if (lastModified != null) {
-                Files.setLastModifiedTime(file, FileTime.fromMillis(lastModified.getTime()));
-            }
-        }
-    }
-
     public static byte[] toBytes(InputStream is) throws IOException {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[0x100];
@@ -305,5 +359,96 @@ public class Utils {
         while ((len = is.read(buf)) != -1)
             bos.write(buf, 0, len);
         return bos.toByteArray();
+    }
+
+    public static String replaceTokens(Map<String, ? extends Supplier<String>> tokens, String value) {
+        StringBuilder buf = new StringBuilder();
+
+        for (int x = 0; x < value.length(); x++) {
+            char c = value.charAt(x);
+            if (c == '\\') {
+                if (x == value.length() - 1)
+                    throw new IllegalArgumentException("Illegal pattern (Bad escape): " + value);
+                buf.append(value.charAt(++x));
+            } else if (c == '{' || c ==  '\'') {
+                StringBuilder key = new StringBuilder();
+                for (int y = x + 1; y <= value.length(); y++) {
+                    if (y == value.length())
+                        throw new IllegalArgumentException("Illegal pattern (Unclosed " + c + "): " + value);
+                    char d = value.charAt(y);
+                    if (d == '\\') {
+                        if (y == value.length() - 1)
+                            throw new IllegalArgumentException("Illegal pattern (Bad escape): " + value);
+                        key.append(value.charAt(++y));
+                    } else if (c == '{' && d == '}') {
+                        x = y;
+                        break;
+                    } else if (c == '\'' && d == '\'') {
+                        x = y;
+                        break;
+                    } else
+                        key.append(d);
+                }
+                if (c == '\'')
+                    buf.append(key);
+                else {
+                    Supplier<String> token = tokens.get(key.toString());
+                    if (token == null)
+                        throw new IllegalArgumentException("Illegal pattern: " + value + " Missing Key: " + key);
+                    buf.append(token.get());
+                }
+            } else {
+                buf.append(c);
+            }
+        }
+
+        return buf.toString();
+    }
+
+    public static void mkdirs(Path path) {
+        if (path == null)
+            return;
+        if (!Files.exists(path))
+            sneak(() -> Files.createDirectories(path));
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T extends Throwable, R> R sneak(Throwable t) throws T {
+        throw (T)t;
+    }
+
+    public interface ThrowingSupplier<T, E extends Throwable> {
+        T get() throws E;
+    }
+    public static <T> T sneak(ThrowingSupplier<T, Throwable> sup) {
+        try {
+            return sup.get();
+        } catch (Throwable ex) {
+            return sneak(ex);
+        }
+    }
+
+    public interface ThrowingRunnable<E extends Throwable> {
+        void run() throws E;
+    }
+    public static void sneak(ThrowingRunnable<Throwable> tr) {
+        try {
+            tr.run();
+        } catch (Throwable ex) {
+            sneak(ex);
+        }
+    }
+
+    public interface ThrowingConsumer<T, E extends Throwable> {
+        void accept(T thing) throws E;
+    }
+    public static <T> Consumer<T> sneak(ThrowingConsumer<T, Throwable> cons) {
+        return e -> {
+            try {
+                cons.accept(e);
+            } catch (Throwable ex) {
+                sneak(ex);
+            }
+        };
     }
 }

@@ -16,7 +16,7 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
-package net.minecraftforge.ir;
+package net.minecraftforge.ir.util;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -51,13 +51,13 @@ import com.google.common.hash.Hashing;
 
 import net.covers1624.quack.util.HashUtils;
 
-class JarContents {
+public class JarContents {
     private static final Logger LOGGER = LogManager.getLogger();
     private static final long DEFAULT_TIME = 1337; // Some JREs don't support time of 0, so use this
-    static final String MANIFEST = "META-INF/MANIFEST.MF";
+    public static final String MANIFEST = "META-INF/MANIFEST.MF";
     private static final HashFunction SHA256 = Hashing.sha256();
 
-    static JarContents loadJar(File path) throws IOException {
+    public static JarContents loadJar(File path) throws IOException {
         Map<String, byte[]> data = new HashMap<>();
         Map<String, Long> timestamps = new HashMap<>();
         if (!path.exists())
@@ -89,23 +89,23 @@ class JarContents {
         this.timestamps = timestamps;
     }
 
-    static String sanitize(String path) {
+    public static String sanitize(String path) {
         return path.startsWith("/") ? path.substring(1) : path;
     }
 
-    boolean changed() {
+    public boolean changed() {
         return this.changed;
     }
 
-    boolean contains(String name) {
+    public boolean contains(String name) {
         return this.data.containsKey(sanitize(name));
     }
 
-    Set<String> getFiles() {
+    public Set<String> getFiles() {
         return new HashSet<>(this.data.keySet());
     }
 
-    InputStream getInput(String name) {
+    public InputStream getInput(String name) {
         byte[] d = this.data.get(sanitize(name));
         return d == null ? null : new ByteArrayInputStream(d);
     }
@@ -124,7 +124,7 @@ class JarContents {
         }
     }
 
-    byte[] delete(String name) {
+    public byte[] delete(String name) {
         name = sanitize(name);
         if (contains(name))
             changed = true;
@@ -132,7 +132,7 @@ class JarContents {
         return this.data.remove(name);
     }
 
-    void write(String name, byte[] data) {
+    public void write(String name, byte[] data) {
         write(name, data, getTime(name));
     }
 
@@ -143,7 +143,7 @@ class JarContents {
         changed = true;
     }
 
-    void save(File target) throws IOException {
+    public void save(File target) throws IOException {
         if (changed())
             cleanSignatures();
 
@@ -193,7 +193,7 @@ class JarContents {
         }
     }
 
-    void merge(JarContents other, boolean overwrite) {
+    public void merge(JarContents other, boolean overwrite) {
         for (String file : other.data.keySet()) {
             if (overwrite || !this.data.containsKey(file))
                 write(file, other.data.get(file), other.getTime(file));
@@ -206,7 +206,7 @@ class JarContents {
         }
     }
 
-    boolean sameData(JarContents other, Set<String> whitelist) throws IOException {
+    public boolean sameData(JarContents other, Set<String> whitelist) throws IOException {
         for (String file : getFiles()) {
             if (whitelist.contains(file))
                 continue;
@@ -289,7 +289,7 @@ class JarContents {
         }
     }
 
-    static boolean isSignature(String s) {
+    public static boolean isSignature(String s) {
         return s.startsWith("META-INF/") &&
                 (s.endsWith(".SF") || s.endsWith(".DSA") || s.endsWith(".RSA") || s.endsWith(".EC"));
     }

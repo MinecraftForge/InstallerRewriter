@@ -19,6 +19,7 @@
 package net.minecraftforge.ir;
 
 import net.covers1624.quack.maven.MavenNotation;
+import net.minecraftforge.ir.util.Utils;
 
 /**
  * Represents a mutable expanded 'Class-Path' manifest entry.

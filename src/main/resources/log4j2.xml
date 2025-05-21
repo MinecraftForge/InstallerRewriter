@@ -2,28 +2,15 @@
 <Configuration status="warn">
     <Appenders>
         <Console name="SysOut" target="SYSTEM_OUT">
-            <PatternLayout pattern="[%d{HH:mm:ss}] [%t/%level] [%logger]: %msg%n"/>
+            <PatternLayout pattern="[%d{HH:mm:ss}] [%5level]: %msg%n"/>
         </Console>
-        <RollingRandomAccessFile name="File" fileName="logs/latest.log" filePattern="logs/%d{yyyy-MM-dd}-%i.log.gz">
-            <PatternLayout pattern="[%d{HH:mm:ss}] [%t/%level] [%logger]: %msg%n"/>
-            <Policies>
-                <TimeBasedTriggeringPolicy/>
-                <OnStartupTriggeringPolicy/>
-            </Policies>
-        </RollingRandomAccessFile>
-        <RollingRandomAccessFile name="DebugFile" fileName="logs/debug.log" filePattern="logs/debug-%i.log.gz">
-            <PatternLayout pattern="[%d{HH:mm:ss.SSS}] [%t/%level] [%logger]: %msg%n"/>
-            <Policies>
-                <OnStartupTriggeringPolicy/>
-                <SizeBasedTriggeringPolicy size="200MB"/>
-            </Policies>
-            <DefaultRolloverStrategy max="5" fileIndex="min"/>
-        </RollingRandomAccessFile>
+        <RandomAccessFile name="DebugFile" fileName="installer-rewriter-debug.log" append="false">
+            <PatternLayout pattern="[%d{HH:mm:ss.SSS}] [%5level]: %msg%n" />
+        </RandomAccessFile>
     </Appenders>
     <Loggers>
         <Root level="all">
             <AppenderRef ref="SysOut" level="${sys:console.level:-info}"/>
-            <AppenderRef ref="File" level="info"/>
             <AppenderRef ref="DebugFile" level="trace"/>
         </Root>
     </Loggers>

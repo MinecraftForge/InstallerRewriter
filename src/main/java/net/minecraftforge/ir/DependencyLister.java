@@ -20,13 +20,14 @@ package net.minecraftforge.ir;
 
 import static net.minecraftforge.ir.InstallerRewriter.FORGE_MAVEN;
 import static net.minecraftforge.ir.InstallerRewriter.OLD_FORGE_MAVEN;
-import static net.minecraftforge.ir.Utils.getAsString;
+import static net.minecraftforge.ir.util.Utils.getAsString;
 
 import java.util.Set;
 
 import com.google.gson.JsonObject;
 
 import net.covers1624.quack.maven.MavenNotation;
+import net.minecraftforge.ir.util.JarContents;
 
 class DependencyLister extends MavenUrlProcessor {
     private final Set<String> deps;
@@ -50,7 +51,7 @@ class DependencyLister extends MavenUrlProcessor {
             url = FORGE_MAVEN + url.substring(OLD_FORGE_MAVEN.length());
 
         if (url.startsWith(FORGE_MAVEN)) {
-            if ("https://maven.minecraftforge.net/".equals(url)) {
+            if (FORGE_MAVEN.equals(url)) {
                 String name = getAsString(json, "name");
 
                 if (!name.startsWith("net.minecraftforge:forge:") &&

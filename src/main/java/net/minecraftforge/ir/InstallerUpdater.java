@@ -18,17 +18,24 @@
  */
 package net.minecraftforge.ir;
 
+import static net.minecraftforge.ir.util.JarContents.MANIFEST;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeSet;
@@ -39,18 +46,20 @@ import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.apache.maven.artifact.versioning.ComparableVersion;
 
 import com.google.gson.JsonObject;
 
 import net.covers1624.quack.maven.MavenNotation;
-
-import static net.minecraftforge.ir.JarContents.MANIFEST;
+import net.minecraftforge.ir.util.JarContents;
+import net.minecraftforge.ir.util.Log;
+import net.minecraftforge.ir.util.Utils;
+import net.minecraftforge.util.download.DownloadUtils;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
 
 class InstallerUpdater {
-    private static final Logger LOGGER = LogManager.getLogger();
+    private static final Log LOGGER = new Log();
     private static final String INSTALL_PROFILE = "install_profile.json";
     @SuppressWarnings("unchecked")
     private Set<String>[] blacklist = new Set[]{ new TreeSet<String>(), new TreeSet<String>() };
@@ -106,7 +115,7 @@ class InstallerUpdater {
         String metadataPath = root + "maven-metadata.xml";
         Path metadataFile = cache.resolve(metadataPath);
         try {
-            Utils.downloadFile(new URL(InstallerRewriter.FORGE_MAVEN + metadataPath), metadataFile, true);
+            DownloadUtils.downloadFile(metadataFile.toFile(), InstallerRewriter.FORGE_MAVEN + metadataPath);
         } catch (IOException e) {
             LOGGER.error("Failed to download " + InstallerRewriter.FORGE_MAVEN + metadataPath, e);
             return null;
@@ -146,7 +155,7 @@ class InstallerUpdater {
 
         Path target = cache.resolve(path);
         try {
-            Utils.downloadFile(new URL(InstallerRewriter.FORGE_MAVEN + path), cache.resolve(path));
+            DownloadUtils.downloadFile(cache.resolve(path).toFile(), InstallerRewriter.FORGE_MAVEN + path);
         } catch (IOException e) {
             LOGGER.error("Failed to download " + InstallerRewriter.FORGE_MAVEN + path, e);
             return false;
@@ -268,4 +277,35 @@ class InstallerUpdater {
         }
     }
 
+    private static final String USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36";
+    private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
+            .readTimeout(Duration.ofMinutes(5))
+            .connectTimeout(Duration.ofMinutes(5))
+            .build();
+    private static final Map<String, Boolean> recentHeadRequests = new HashMap<>();
+    public static boolean headRequest(URL url) throws IOException {
+        // OkHttp does not handle the file protocol.
+        if (url.getProtocol().equals("file")) {
+            try {
+                return Files.exists(Paths.get(url.toURI()));
+            } catch (URISyntaxException e) {
+                throw new RuntimeException("What.", e);
+            }
+        }
+
+        Boolean recent = recentHeadRequests.get(url.toString());
+        if (recent != null) {
+            return recent;
+        }
+        Request request = new Request.Builder()
+                .url(url)
+                .head()
+                .header("User-Agent", USER_AGENT)
+                .build();
+        try (var response = HTTP_CLIENT.newCall(request).execute()) {
+            recent = response.isSuccessful();
+            recentHeadRequests.put(url.toString(), recent);
+            return recent;
+        }
+    }
 }

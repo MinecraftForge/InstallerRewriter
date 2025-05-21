@@ -16,22 +16,4 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
-package net.minecraftforge.ir;
-
-import java.io.IOException;
-
-import net.covers1624.quack.maven.MavenNotation;
-import net.minecraftforge.ir.util.JarContents;
-
-/**
- * Created by covers1624 on 1/5/21.
- */
-public interface InstallerProcessor {
-
-    /**
-     * Processes a given installer into the latest format.
-     *
-     * @param ctx The context.
-     */
-    InstallerFormat process(MavenNotation installer, JarContents content, InstallerFormat format) throws IOException;
-}
+package net.minecraftforge.ir.test;

@@ -18,48 +18,37 @@
  */
 package net.minecraftforge.ir;
 
-import com.google.common.hash.HashCode;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import net.covers1624.quack.io.CopyingFileVisitor;
-import net.covers1624.quack.io.IOUtils;
 import net.covers1624.quack.maven.MavenNotation;
-import net.covers1624.quack.util.HashUtils;
-import org.apache.commons.lang3.tuple.Pair;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import net.minecraftforge.ir.util.JarContents;
+import net.minecraftforge.ir.util.Log;
+import net.minecraftforge.ir.util.Utils;
+import net.minecraftforge.util.download.DownloadUtils;
+import net.minecraftforge.util.hash.HashFunction;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.regex.Pattern;
-
 import static java.util.Objects.requireNonNull;
 import static net.minecraftforge.ir.InstallerRewriter.*;
-import static net.minecraftforge.ir.Utils.getAsInt;
-import static net.minecraftforge.ir.Utils.getAsString;
+import static net.minecraftforge.ir.util.Utils.getAsInt;
+import static net.minecraftforge.ir.util.Utils.getAsString;
 
 /**
  * Installer V2 only needs to be copied over.
- * <p>
- * Created by covers1624 on 1/5/21.
  */
 @SuppressWarnings ("UnstableApiUsage")
 public class InstallerV2Processor implements InstallerProcessor {
 
-    private static final Logger LOGGER = LogManager.getLogger();
-    private static final HashFunction SHA1 = Hashing.sha1();
+    private static final Log LOGGER = new Log();
 
     // Exclude any classes and the META-INF folder from being copied over.
-    private static final Pattern PATTERN = Pattern.compile("^/META-INF/.*$|/.*.class$");
+    //private static final Pattern PATTERN = Pattern.compile("^/META-INF/.*$|/.*.class$");
 
     @Override
     public InstallerFormat process(MavenNotation installer, JarContents content, InstallerFormat format) throws IOException {
@@ -192,15 +181,15 @@ public class InstallerV2Processor implements InstallerProcessor {
         } else {
             // Download the artifact if necessary
             artifactPath = InstallerRewriter.CACHE_DIR.resolve(path);
-            Utils.downloadFile(new URL(url), artifactPath);
+            DownloadUtils.downloadFile(artifactPath.toFile(), url);
         }
 
         // Compute sha1 and length of the artifact.
-        HashCode computedHash = HashUtils.hash(SHA1, artifactPath);
+        String computedHash = HashFunction.SHA1.hash(artifactPath.toFile());
         int computedLength = Math.toIntExact(Files.size(artifactPath));
 
         // Validate the artifact hash matches.
-        if (!HashUtils.equals(computedHash, expectedSha1)) {
+        if (!computedHash.equals(expectedSha1)) {
             LOGGER.warn("Corrected incorrect hash for {}, From: {}, To: {}", name, expectedSha1, computedHash);
             artifact.addProperty("sha1", computedHash.toString());
             changes = true;
