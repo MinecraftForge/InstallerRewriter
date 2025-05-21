@@ -86,6 +86,7 @@ public class InstallerTester {
         var startO    = parser.acceptsAll(asList("s", "start"), "Starting version to test.").withRequiredArg().ofType(ComparableVersion.class);
         var endO      = parser.acceptsAll(asList("e", "end"), "Ending version to test.").withRequiredArg().ofType(ComparableVersion.class);
         var forceO    = parser.acceptsAll(asList("force"), "Forces tasks to rerun as if the cache missed");
+        var ltsO      = parser.acceptsAll(asList("lts"), "Only tests using LTS java versions");
 
         var optSet = parser.parse(args);
 
@@ -101,6 +102,10 @@ public class InstallerTester {
         LOGGER.info(format, "maven", repo);
         var artifact = Artifact.from(optSet.valueOf(artifactO));
         LOGGER.info(format, "artifact", artifact);
+        var lts = optSet.has(ltsO);
+        LOGGER.info(format, "lts", lts);
+        var force = optSet.has(forceO);
+        LOGGER.info(format, "force", force);
 
         var builder = new Builder()
             .artifact(artifact)
@@ -113,8 +118,11 @@ public class InstallerTester {
             .end     (getVersion(format, optSet, endO    ))
             ;
 
-        if (optSet.has(forceO))
+        if (force)
             builder.force();
+
+        if (lts)
+            builder.lts();
 
         LOGGER.info("");
 
@@ -142,6 +150,7 @@ public class InstallerTester {
 
     private static class Builder {
         private boolean force = false;
+        private boolean lts = false;
         private String repo;
         private Path output;
         private Path cache;
@@ -157,6 +166,11 @@ public class InstallerTester {
 
         public Builder force() {
             this.force = true;
+            return this;
+        }
+
+        public Builder lts() {
+            this.lts = true;
             return this;
         }
 
@@ -515,6 +529,25 @@ public class InstallerTester {
         return artifact;
     }
 
+    /* Convert a java version to the next compatible LTS java version */
+    private int lts(int version) {
+        if (!this.cfg.lts)
+            return version;
+
+        if (version <= 8)
+            return 8;
+        if (version <= 11)
+            return 11;
+        if (version <= 17)
+            return 17;
+        if (version <= 21)
+            return 21;
+        if (version <= 25)
+            return 25;
+
+        return version;
+    }
+
     private void downloadJava(List<Report> reports) {
         LOGGER.info("Locating Java");
 
@@ -530,7 +563,7 @@ public class InstallerTester {
             var json = mcCache.getVersion(version);
             if (version == null)
                 continue;
-            javaVersions.add(json.getJavaVersion(version));
+            javaVersions.add(lts(json.getJavaVersion(version)));
         }
 
         if (javaVersions.isEmpty())
@@ -670,7 +703,7 @@ public class InstallerTester {
             var installerJar = report.installer().toAbsolutePath().toString();
 
             var version = this.mcCache.getVersion(mcVer);
-            var javaHome = version == null ? null : this.disco.find(version.getJavaVersion(mcVer));
+            var javaHome = version == null ? null : this.disco.find(lts(version.getJavaVersion(mcVer)));
 
             if (javaHome == null)
                 return ret.fail("Failed to find Java install");
@@ -734,7 +767,7 @@ public class InstallerTester {
 
             var mcVer = report.profile().getMinecraftVersion();
             var version = this.mcCache.getVersion(mcVer);
-            var javaHome = version == null ? null : this.disco.find(version.getJavaVersion(mcVer));
+            var javaHome = version == null ? null : this.disco.find(lts(version.getJavaVersion(mcVer)));
             var javaExe = getJavaExecutable(javaHome).toString();
             List<String> args;
 

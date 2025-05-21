@@ -35,10 +35,11 @@ public class Disco {
 
     public Disco(Log log, File cache) {
         this.log = log;
-        this.disco = IJavaLocator.disco(cache);
+        this.disco = IJavaLocator.disco(new File(cache, "jdks"));
         this.locators = Arrays.asList(
             IJavaLocator.home(),
             IJavaLocator.gradle(),
+            IJavaLocator.paths(),
             disco
         );
     }

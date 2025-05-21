@@ -35,6 +35,6 @@ dependencyResolutionManagement {
 
         library 'hash-utils', 'net.minecraftforge:hash-utils:0.1.9'
         library 'download-utils', 'net.minecraftforge:download-utils:0.3.1'
-        library 'java-provisioner', 'net.minecraftforge:java-provisioner:1.0.7'
+        library 'java-provisioner', 'net.minecraftforge:java-provisioner:1.0.8'
     }
 }
