@@ -146,6 +146,8 @@ public class MavenCache {
             } catch (FileNotFoundException e) {
                 return null;
             } catch (IOException e) {
+                if (e.getCause() instanceof FileNotFoundException)
+                    return null;
                 return sneak(e);
             }
         }

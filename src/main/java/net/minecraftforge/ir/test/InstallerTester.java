@@ -88,6 +88,11 @@ public class InstallerTester {
         var forceO    = parser.acceptsAll(asList("force"), "Forces tasks to rerun as if the cache missed");
         var ltsO      = parser.acceptsAll(asList("lts"), "Only tests using LTS java versions");
 
+        // Tests, if any are specified, we will run just that test, if none are specified we run all tests.
+        var testClientInstall = parser.acceptsAll(asList("client-install"), "Runs the client install test.");
+        var testServerInstall = parser.acceptsAll(asList("server-install"), "Runs the server install test.");
+        var testServerRun = parser.acceptsAll(asList("server-run"), "Runs the sever run test, implies --server-install");
+
         var optSet = parser.parse(args);
 
         if (optSet.has(helpO)) {
@@ -106,6 +111,9 @@ public class InstallerTester {
         LOGGER.info(format, "lts", lts);
         var force = optSet.has(forceO);
         LOGGER.info(format, "force", force);
+        boolean clientInstall = optSet.has(testClientInstall);
+        boolean serverInstall = optSet.has(testServerInstall) || optSet.has(testServerRun);
+        boolean serverRun = optSet.has(testServerRun);
 
         var builder = new Builder()
             .artifact(artifact)
@@ -123,6 +131,17 @@ public class InstallerTester {
 
         if (lts)
             builder.lts();
+
+        if (clientInstall || serverInstall || serverRun) {
+            if (clientInstall)
+                builder.test(Test.INSTALL_CLIENT);
+
+            if (serverInstall)
+                builder.test(Test.INSTALL_SERVER);
+
+            if (serverRun)
+                builder.test(Test.RUN_SERVER);
+        }
 
         LOGGER.info("");
 
@@ -159,6 +178,7 @@ public class InstallerTester {
         private ComparableVersion only;
         private ComparableVersion start;
         private ComparableVersion end;
+        private List<Test.Name<?>> tests = new ArrayList<>();
 
         public InstallerTester build() {
             return new InstallerTester(this);
@@ -213,6 +233,15 @@ public class InstallerTester {
             this.end = value;
             return this;
         }
+
+        public Builder test(Test.Name<?> test) {
+            this.tests.add(test);
+            return this;
+        }
+
+        private boolean needs(Test.Name<?> test) {
+            return this.tests.isEmpty() || this.tests.contains(test);
+        }
     }
 
     private final Builder cfg;
@@ -251,10 +280,15 @@ public class InstallerTester {
     }
 
     private int run() {
+        if (cfg.tests.isEmpty()) {
+            cfg.tests.add(Test.INSTALL_CLIENT);
+            cfg.tests.add(Test.INSTALL_SERVER);
+            cfg.tests.add(Test.RUN_SERVER);
+        }
+
         LOGGER.info("Discovering versions");
         var versions = maven.getVersions(artifact).stream()
             .map(ComparableVersion::new)
-            //.filter(this.filter)
             .sorted()
             .toList();
 
@@ -272,8 +306,10 @@ public class InstallerTester {
 
         downloadLibraries(reports);
         downloadJava(reports);
-        testSide(reports, true);
-        testSide(reports, false);
+        if (this.cfg.needs(Test.INSTALL_CLIENT))
+            testSide(reports, true);
+        if (this.cfg.needs(Test.INSTALL_SERVER) || this.cfg.needs(Test.RUN_SERVER))
+            testSide(reports, false);
 
         LOGGER.info("Cleaning output folder");
         for (var report : reports) {
@@ -301,6 +337,14 @@ public class InstallerTester {
                     var report = Report.load(LOGGER, root);
                     if (report == null)
                         report = new Report(this.artifact.withVersion(version.toString()), null);
+                    else if (this.cfg.force) {
+                        if (this.cfg.tests.isEmpty())
+                            report.tests.clear();
+                        else {
+                            for (var test : this.cfg.tests)
+                                report.tests.remove(test.name());
+                        }
+                    }
                     ret.add(report);
                 }
             }
@@ -416,6 +460,13 @@ public class InstallerTester {
                     globals.format(version, report.format());
                     if (report.serverJar() == null)
                         globals.noServerJar(version);
+
+                    var installClient = report.get(Test.INSTALL_CLIENT);
+                    if (installClient != null && installClient.failedHash() != null)
+                        globals.hashFailure(version);
+                    var installServer = report.get(Test.INSTALL_SERVER);
+                    if (installServer != null && installServer.failedHash() != null)
+                        globals.hashFailure(version);
                 }
 
                 for (var global : report.globals())
@@ -613,8 +664,8 @@ public class InstallerTester {
                     continue;
                 }
 
-                boolean needInstall = this.cfg.force || !report.cached(testInstall);
-                boolean needRun = testRun != null && (this.cfg.force || !report.cached(testRun));
+                boolean needInstall = !report.cached(testInstall) && this.cfg.needs(testInstall);
+                boolean needRun = testRun != null && !report.cached(testRun) && this.cfg.needs(testRun);
 
                 if (!needInstall && !needRun)
                     continue;
@@ -714,13 +765,14 @@ public class InstallerTester {
                 );
             }
 
+            var targetStr = target.toAbsolutePath().toString();
             int installerExit = Utils.runWaitFor(builder -> {
                 ArrayList<String> args = new ArrayList<>(asList(
                     getJavaExecutable(javaHome).toString(),
                     "-jar",
                     installerJar,
                     "--install" + side,
-                    target.toAbsolutePath().toString()
+                    targetStr
                 ));
 
                 if (report.profile().getFormat() == InstallerFormat.V2) {
@@ -746,6 +798,18 @@ public class InstallerTester {
                 .filter(Files::isRegularFile)
                 .map(p -> target.relativize(p).toString().replace('\\', '/').replaceAll(verPattern, "\\[VERSION\\]"))
                 .forEach(ret::addFile);
+
+            List<String> runLog = ret.getLog();
+            for (int i = 0; i < runLog.size(); i++) {
+                String s = runLog.get(i).trim();
+                if (i < runLog.size() - 1 && s.contains("Processor failed")) {
+                    var next = runLog.get(i + 1).trim();
+                    var file = next.length() > targetStr.length() + 1 ? next.substring(targetStr.length() + 1) : null;
+                    ret.failedHash(file);
+                    ret.fail("Failed Hash: %s", file);
+                }
+            }
+
         } catch (Throwable e) {
             ret.error(e);
             report.log().error("Failed %s", e.getMessage());

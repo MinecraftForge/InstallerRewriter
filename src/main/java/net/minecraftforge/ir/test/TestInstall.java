@@ -42,6 +42,7 @@ class TestInstall extends Test {
     }
 
     private Set<String> files = new TreeSet<String>();
+    private String failedHash = null;
 
     TestInstall(Report report, boolean client) {
         this(report, client ? INSTALL_CLIENT : INSTALL_SERVER);
@@ -59,16 +60,29 @@ class TestInstall extends Test {
         this.files.add(file);
     }
 
+    public void failedHash(String hash) {
+        this.failedHash = hash;
+    }
+
+    public String failedHash() {
+        return this.failedHash;
+    }
+
     @Override
     Object getCacheData() {
-        return new CacheData(version, success, message, globals, files);
+        return new CacheData(version, success, message, globals, files, failedHash);
     }
 
     protected static class CacheData extends Test.CacheData {
         Collection<String> files;
-        protected CacheData(int version, boolean success, String message, Collection<String> globals, Collection<String> files) {
+        String failedHash;
+
+        protected CacheData(int version, boolean success, String message, Collection<String> globals,
+            Collection<String> files, String failedHash
+        ) {
             super(version, success, message, globals);
             this.files = files;
+            this.failedHash = failedHash;
         }
 
         private static TestInstall load(Report report, Path path, boolean client) {
@@ -93,6 +107,8 @@ class TestInstall extends Test {
         protected void apply(TestInstall instance) {
             if (files != null)
                 files.forEach(instance::addFile);
+            if (failedHash != null)
+                instance.failedHash(failedHash);
             super.apply(instance);
         }
     }

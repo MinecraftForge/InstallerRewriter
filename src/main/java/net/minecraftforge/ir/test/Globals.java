@@ -43,6 +43,7 @@ class Globals {
     private static final String GLOBAL_V2 = "v2";
     private static final String GLOBAL_FAILS = "failures";
     private static final String GLOBAL_NO_SERVER_JAR = "no_server_jar";
+    private static final String GLOBAL_HASH_FAILURE = "hash_failure";
 
     private final Map<String, Set<ComparableVersion>> globals = new HashMap<>();
     private final Log log;
@@ -71,6 +72,10 @@ class Globals {
 
     public void noServerJar(ComparableVersion version) {
         add(GLOBAL_NO_SERVER_JAR, version);
+    }
+
+    public void hashFailure(ComparableVersion version) {
+        add(GLOBAL_HASH_FAILURE, version);
     }
 
     public void format(ComparableVersion version, InstallerFormat format) {
